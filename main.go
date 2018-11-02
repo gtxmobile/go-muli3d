@@ -52,6 +52,7 @@ var screen_keys [512]int32
 var screen_dc win.HDC
 var screen_hb win.HBITMAP
 var screen_handle win.HWND
+var screen_fb *uint8
 func main(){
 	fmt.Println("main")
 	//var inTe, outTE *walk.TextEdit
@@ -94,130 +95,6 @@ func main(){
 	}
 }
 
-
-
-func screen_init(w int32,h int32,title string)(int){
-	//hInst := win.GetModuleHandle(nil)
-	//hIcon := win.LoadIcon(0, MAKEINTRESOURCE(IDI_APPLICATION))
-	//hCursor := LoadCursor(0, MAKEINTRESOURCE(IDC_ARROW))
-	var wc = win.WNDCLASSEX{uint32(unsafe.Sizeof(win.WNDCLASSEX{})),
-		win.CS_BYTEALIGNCLIENT,
-		syscall.NewCallback(screen_events),
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		nil,
-		syscall.StringToUTF16Ptr("SCREEN3.1415926"),
-		0}
-	 var bi = win.BITMAPINFO {
-	 	win.BITMAPINFOHEADER{
-	 		uint32(unsafe.Sizeof(win.BITMAPINFOHEADER{})), w, -h, 1, 32, win.BI_RGB,
-			uint32(w * h * 4), 0, 0, 0, 0 },nil}
-
-	var rect = win.RECT { 0, 0, w, h }
-	screen_close()
-	wc.HbrBackground = win.HBRUSH(win.GetStockObject(win.BLACK_BRUSH))
-	wc.HInstance = win.GetModuleHandle(nil);
-	wc.HCursor = win.LoadCursor(0, win.MAKEINTRESOURCE(win.IDC_ARROW))
-	if win.RegisterClassEx(&wc) == 0{
-		return -1
-	}
-
-	screen_handle = win.CreateWindowEx(
-		0,
-		syscall.StringToUTF16Ptr("SCREEN3.1415926"),
-		syscall.StringToUTF16Ptr(title),
-		win.WS_OVERLAPPED | win.WS_CAPTION | win.WS_SYSMENU | win.WS_MINIMIZEBOX,
-		0, 0, 0, 0, 0, 0, wc.HInstance, nil)
-	if screen_handle == 0 {
-		return -2
-	}
-
-	var ptr unsafe.Pointer
-	//screen_exit := 0
-	hDC := win.GetDC(screen_handle)
-	screen_dc = win.CreateCompatibleDC(hDC)
-	win.ReleaseDC(screen_handle, hDC)
-
-	screen_hb = win.CreateDIBSection(screen_dc, &bi.BmiHeader, win.DIB_RGB_COLORS, &ptr, 0, 0)
-	if (screen_hb == 0){
-		return -3
-	}
-	screen_ob = win.HBITMAP(win.SelectObject(screen_dc, win.HGDIOBJ(screen_hb)))
-	screen_w = w
-	screen_h = h
-	screen_pitch = int64(w * 4)
-
-	win.AdjustWindowRect(&rect, uint32(win.GetWindowLong(screen_handle, win.GWL_STYLE)), false)
-	wx := rect.Right - rect.Left
-	wy := rect.Bottom - rect.Top
-	sx := (win.GetSystemMetrics(win.SM_CXSCREEN) - wx) / 2
-	sy := (win.GetSystemMetrics(win.SM_CYSCREEN) - wy) / 2
-	if sy < 0 {
-		sy = 0
-	}
-	win.SetWindowPos(screen_handle, 0, sx, sy, wx, wy, (win.SWP_NOCOPYBITS | win.SWP_NOZORDER | win.SWP_SHOWWINDOW))
-	win.SetForegroundWindow(screen_handle)
-
-	win.ShowWindow(screen_handle, win.SW_NORMAL)
-	screen_dispatch()
-
-	//screen_fb = uintptr(ptr)
-
-	for i :=0;i<int(w*h*4);i++{
-		//screen_fb[i] = 0
-	}
-	return 0
-}
-
-func screen_close()(int){
-
-	if screen_dc != 0 {
-		if screen_ob != 0 {
-			win.SelectObject(screen_dc, win.HGDIOBJ(screen_ob))
-			screen_ob = 0
-		}
-		win.DeleteDC(screen_dc)
-		screen_dc = 0
-	}
-	if screen_hb != 0 {
-		win.DeleteObject(win.HGDIOBJ(screen_hb))
-		screen_hb = 0
-	}
-	if screen_handle != 0 {
-		win.CloseHandle(win.HANDLE(screen_handle))
-		screen_handle = 0
-	}
-	return 0
-}
-func screen_events(hWnd win.HWND,msg uint32,wParam ,lParam uintptr)(uintptr){
-
-	switch (msg) {
-		case win.WM_CLOSE: screen_exit = 1; break
-		case win.WM_KEYDOWN: screen_keys[wParam & 511] = 1; break
-		case win.WM_KEYUP: screen_keys[wParam & 511] = 0; break
-		default: return win.DefWindowProc(hWnd, msg, wParam, lParam)
-	}
-	return 0
-}
-func screen_dispatch(){
-	var msg win.MSG
-	for {
-		if !win.PeekMessage(&msg, 0, 0, 0, win.PM_NOREMOVE){ break}
-		if win.GetMessage(&msg, 0, 0, 0) == 0 {break}
-		win.DispatchMessage(&msg)
-	}
-}
-
-func screen_update() {
-	hDC := win.GetDC(screen_handle)
-	win.BitBlt(hDC, 0, 0, screen_w, screen_h, screen_dc, 0, 0, win.SRCCOPY)
-	win.ReleaseDC(screen_handle, hDC)
-	screen_dispatch()
-}
 
 
 func vector_add(z *Vector_t,x *Vector_t, y *Vector_t){
@@ -438,8 +315,11 @@ type Transform_t struct {
 }
 
 //初始化、设置屏幕长宽
-func transform_init(ts *Transform_t, width int,height int){
-
+func transform_init(ts *Transform_t, width int32,height int32){
+	aspect := float64(width)/float64(height)
+	matrix_set_identiry(&ts.World)
+	matrix_set_identiry(&ts.View)
+	matrix_set_perspective(&ts.Projection,math.Pi *0.5,aspect,1.0,500.0)
 }
 // 将矢量 x 进行 project
 func transform_apply(ts *Transform_t,y *Vector_t, x *Vector_t){
@@ -509,3 +389,207 @@ type Scanline_t struct {
 	Z int
 }
 
+//=====================================================================
+// 渲染设备
+//=====================================================================
+type Device_t struct {
+	Transform 	Transform_t			// 坐标变换器
+	Width		int32				// 窗口宽度
+	Height		int32				// 窗口高度
+	Framebuffer [][]int32			// 像素缓存：framebuffer[y] 代表第 y行
+	Zbuffer		[][]float64			// 深度缓存：zbuffer[y] 为第 y行指针
+	Texture 	[][]int32			// 纹理：同样是每行索引
+	Tex_width	int32				// 纹理宽度
+	Tex_height	int32				// 纹理高度
+	Max_u		float64				// 纹理最大宽度：tex_width - 1
+	Max_v		float64				// 纹理最大高度：tex_height - 1
+	Render_state	int32			// 渲染状态
+	Background		uint32			// 背景颜色
+	Foreground		uint32			// 线框颜色
+}
+
+var RENDER_STATE_WIREFRAME int32=1		// 渲染线框
+var RENDER_STATE_TEXTURE int32=2		// 渲染纹理
+var RENDER_STATE_COLOR   int32=4		// 渲染颜色
+
+// 设备初始化，fb为外部帧缓存，非 NULL 将引用外部帧缓存（每行 4字节对齐）
+func device_init(device *Device_t, width int32, height int32, fb *uintptr) {
+	//need := sizeof(void*) * (height * 2 + 1024) + width * height * 8
+	//char *ptr = (char*)malloc(need + 64);
+	//char *framebuf, *zbuf;
+	var i,j int32
+
+	//assert(ptr);
+	//初始化framebuffer,zbuffer
+	//device.Framebuffer = (IUINT32**)ptr;
+	for i = 0; i < height; i++ {
+		ftmp := make([]int32, width)
+		device.Framebuffer = append(device.Framebuffer,ftmp)
+		ztmp := make([]float64, width)
+		device.Zbuffer = append(device.Zbuffer,ztmp)
+	}
+	//device.zbuffer = (float**)(ptr + sizeof(void*) * height);
+	//ptr += sizeof(void*) * height * 2;
+	//device.texture = (IUINT32**) ptr;
+	//ptr += sizeof(void*) * 1024;
+	//framebuf = (char*)ptr;
+	//zbuf = (char*)ptr + width * height * 4;
+	//ptr += width * height * 8;
+	//if (fb != NULL) framebuf = (char*)fb;
+	//for j = 0; j < height; j++ {
+	//	device->framebuffer[j] = (IUINT32*)(framebuf + width * 4 * j);
+	//	device->zbuffer[j] = (float*)(zbuf + width * 4 * j);
+	//}
+	device.Texture[0] = make([]int32,64)
+	device.Texture[1] = make([]int32,64)
+	//memset(device->texture[0], 0, 64);
+	device.Tex_width = 2
+	device.Tex_height = 2
+	device.Max_u = 1.0
+	device.Max_v = 1.0
+	device.Width = width
+	device.Height = height
+	device.Background = 0xc0c0c0
+	device.Foreground = 0
+	transform_init(&device.Transform, width, height)
+	device.Render_state = RENDER_STATE_WIREFRAME
+}
+
+func device_destroy(device *Device_t){
+
+}
+
+func device_clear(device *Device_t,mode int32){
+	var x ,y int32
+	var height int32 = device.Height
+	for y = 0; y < device.Height; y++ {
+		dst := device.Framebuffer[y]
+		cc := (height - 1 - y) * 230 / (height - 1)
+		cc = (cc << 16) | (cc << 8) | cc
+		if mode == 0 { cc = int32(device.Background)}
+		for x = device.Width; x > 0;  x--) dst[0] = cc;
+	}
+}
+
+func screen_init(w int32,h int32,title string)(int){
+	//hInst := win.GetModuleHandle(nil)
+	//hIcon := win.LoadIcon(0, MAKEINTRESOURCE(IDI_APPLICATION))
+	//hCursor := LoadCursor(0, MAKEINTRESOURCE(IDC_ARROW))
+	var wc = win.WNDCLASSEX{uint32(unsafe.Sizeof(win.WNDCLASSEX{})),
+		win.CS_BYTEALIGNCLIENT,
+		syscall.NewCallback(screen_events),
+		0,
+		0,
+		0,
+		0,
+		0,
+		0,
+		nil,
+		syscall.StringToUTF16Ptr("SCREEN3.1415926"),
+		0}
+	var bi = win.BITMAPINFO {
+		win.BITMAPINFOHEADER{
+			uint32(unsafe.Sizeof(win.BITMAPINFOHEADER{})), w, -h, 1, 32, win.BI_RGB,
+			uint32(w * h * 4), 0, 0, 0, 0 },nil}
+
+	var rect = win.RECT { 0, 0, w, h }
+	screen_close()
+	wc.HbrBackground = win.HBRUSH(win.GetStockObject(win.BLACK_BRUSH))
+	wc.HInstance = win.GetModuleHandle(nil);
+	wc.HCursor = win.LoadCursor(0, win.MAKEINTRESOURCE(win.IDC_ARROW))
+	if win.RegisterClassEx(&wc) == 0{
+		return -1
+	}
+
+	screen_handle = win.CreateWindowEx(
+		0,
+		syscall.StringToUTF16Ptr("SCREEN3.1415926"),
+		syscall.StringToUTF16Ptr(title),
+		win.WS_OVERLAPPED | win.WS_CAPTION | win.WS_SYSMENU | win.WS_MINIMIZEBOX,
+		0, 0, 0, 0, 0, 0, wc.HInstance, nil)
+	if screen_handle == 0 {
+		return -2
+	}
+
+	var ptr unsafe.Pointer
+	//screen_exit := 0
+	hDC := win.GetDC(screen_handle)
+	screen_dc = win.CreateCompatibleDC(hDC)
+	win.ReleaseDC(screen_handle, hDC)
+
+	screen_hb = win.CreateDIBSection(screen_dc, &bi.BmiHeader, win.DIB_RGB_COLORS, &ptr, 0, 0)
+	if (screen_hb == 0){
+		return -3
+	}
+	screen_ob = win.HBITMAP(win.SelectObject(screen_dc, win.HGDIOBJ(screen_hb)))
+	screen_w = w
+	screen_h = h
+	screen_pitch = int64(w * 4)
+
+	win.AdjustWindowRect(&rect, uint32(win.GetWindowLong(screen_handle, win.GWL_STYLE)), false)
+	wx := rect.Right - rect.Left
+	wy := rect.Bottom - rect.Top
+	sx := (win.GetSystemMetrics(win.SM_CXSCREEN) - wx) / 2
+	sy := (win.GetSystemMetrics(win.SM_CYSCREEN) - wy) / 2
+	if sy < 0 {
+		sy = 0
+	}
+	win.SetWindowPos(screen_handle, 0, sx, sy, wx, wy, (win.SWP_NOCOPYBITS | win.SWP_NOZORDER | win.SWP_SHOWWINDOW))
+	win.SetForegroundWindow(screen_handle)
+
+	win.ShowWindow(screen_handle, win.SW_NORMAL)
+	screen_dispatch()
+
+	screen_fb = (*uint8)(ptr)
+
+	for i :=0;i<int(w*h*4);i++{
+		*screen_fb[i] = 0
+	}
+	return 0
+}
+
+func screen_close()(int){
+
+	if screen_dc != 0 {
+		if screen_ob != 0 {
+			win.SelectObject(screen_dc, win.HGDIOBJ(screen_ob))
+			screen_ob = 0
+		}
+		win.DeleteDC(screen_dc)
+		screen_dc = 0
+	}
+	if screen_hb != 0 {
+		win.DeleteObject(win.HGDIOBJ(screen_hb))
+		screen_hb = 0
+	}
+	if screen_handle != 0 {
+		win.CloseHandle(win.HANDLE(screen_handle))
+		screen_handle = 0
+	}
+	return 0
+}
+func screen_events(hWnd win.HWND,msg uint32,wParam ,lParam uintptr)(uintptr){
+
+	switch (msg) {
+	case win.WM_CLOSE: screen_exit = 1; break
+	case win.WM_KEYDOWN: screen_keys[wParam & 511] = 1; break
+	case win.WM_KEYUP: screen_keys[wParam & 511] = 0; break
+	default: return win.DefWindowProc(hWnd, msg, wParam, lParam)
+	}
+	return 0
+}
+func screen_dispatch(){
+	var msg win.MSG
+	for {
+		if !win.PeekMessage(&msg, 0, 0, 0, win.PM_NOREMOVE){ break}
+		if win.GetMessage(&msg, 0, 0, 0) == 0 {break}
+		win.DispatchMessage(&msg)
+	}
+}
+
+func screen_update() {
+	hDC := win.GetDC(screen_handle)
+	win.BitBlt(hDC, 0, 0, screen_w, screen_h, screen_dc, 0, 0, win.SRCCOPY)
+	win.ReleaseDC(screen_handle, hDC)
+	screen_dispatch()
+}
