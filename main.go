@@ -8,6 +8,7 @@ import (
 	"unsafe"
 	"syscall"
 	"time"
+	"github.com/lxn/walk/declarative"
 )
 
 type Matrix_t struct{
@@ -19,8 +20,9 @@ type Vector_t struct {
 	Z 	float64
 	W 	float64
 }
+
 type Point_t Vector_t
-func CMID(x int,min int, max int) int {
+func CMID(x int32,min int32, max int32) int32 {
 	if x<min{
 		return min
 	} else{
@@ -39,60 +41,6 @@ func interp(x1 float64,x2 float64,t float64) float64 {
 func vector_length(v *Vector_t) float64{
 	sq := v.X * v.X + v.Y*v.Y + v.Z*v.Z
 	return math.Sqrt((sq))
-}
-
-func init(){
-	fmt.Println("init")
-}
-var screen_ob win.HBITMAP
-var screen_w ,screen_h int32
-var screen_exit int32 = 0
-var screen_pitch int64
-var screen_keys [512]int32
-var screen_dc win.HDC
-var screen_hb win.HBITMAP
-var screen_handle win.HWND
-var screen_fb *uint8
-func main(){
-	fmt.Println("main")
-	//var inTe, outTE *walk.TextEdit
-
-	//MainWindow{
-	//	Title:	"SCREAMO",
-	//	MinSize: Size{600,800},
-	//	Layout: VBox{},
-	//}.Run()
-	pos := 3.5
-	var alpha float64 = 1
-	kbhit := 0
-	indicator := 0
-	screen_init(800, 600, "go mini3d")
-
-	for screen_exit == 0 && screen_keys[win.VK_ESCAPE] ==0 {
-		screen_dispatch()
-		//device_clear(&device, 1);
-		//camera_at_zero(&device, pos, 0, 0);
-
-		if screen_keys[win.VK_UP] != 0{ pos -= 0.01}
-		if screen_keys[win.VK_DOWN] != 0{pos += 0.01}
-		if screen_keys[win.VK_LEFT] != 0 {alpha += 0.01}
-		if screen_keys[win.VK_RIGHT] != 0 {alpha -= 0.01}
-
-		if screen_keys[win.VK_SPACE] !=0 {
-			if kbhit == 0 {
-				kbhit = 1
-				indicator +=1
-				if indicator >= 3 {indicator = 0}
-				//device.render_state = states[indicator];
-			}
-		}else {
-			kbhit = 0
-		}
-
-		//draw_box(&device, alpha);
-		screen_update()
-		time.Sleep(1)
-	}
 }
 
 
@@ -296,6 +244,17 @@ func matrix_set_perspective(m *Matrix_t,fovy float64,aspect float64,zn float64,z
 
 }
 
+//=====================================================================
+// 坐标变换
+//=====================================================================
+type Transform_t struct {
+	World      Matrix_t
+	View       Matrix_t
+	Projection Matrix_t
+	Transform  Matrix_t
+	W          float64
+	H          float64
+}
 //矩阵更新
 
 func transform_update(ts *Transform_t){
@@ -305,14 +264,7 @@ func transform_update(ts *Transform_t){
 
 }
 
-type Transform_t struct {
-	World      Matrix_t
-	View       Matrix_t
-	Projection Matrix_t
-	Transform  Matrix_t
-	W          float64
-	H          float64
-}
+
 
 //初始化、设置屏幕长宽
 func transform_init(ts *Transform_t, width int32,height int32){
@@ -338,7 +290,7 @@ func transform_check_cvv(v *Vector_t)(int){
 	return check
 }
 // 归一化，得到屏幕坐标
-func transform_homegenize(ts *Transform_t, y *Vector_t, x *Vector_t){
+func transform_homogenize(ts *Transform_t, y *Vector_t, x *Vector_t){
 	rhw := 1/x.W
 	y.X = (x.X * rhw +1)*ts.W*0.5
 	y.Y = (1-x.Y*rhw) * ts.H * 0.5
@@ -396,9 +348,9 @@ type Device_t struct {
 	Transform 	Transform_t			// 坐标变换器
 	Width		int32				// 窗口宽度
 	Height		int32				// 窗口高度
-	Framebuffer [][]int32			// 像素缓存：framebuffer[y] 代表第 y行
+	Framebuffer [][]uint32			// 像素缓存：framebuffer[y] 代表第 y行
 	Zbuffer		[][]float64			// 深度缓存：zbuffer[y] 为第 y行指针
-	Texture 	[][]int32			// 纹理：同样是每行索引
+	Texture 	[][]uint32			// 纹理：同样是每行索引
 	Tex_width	int32				// 纹理宽度
 	Tex_height	int32				// 纹理高度
 	Max_u		float64				// 纹理最大宽度：tex_width - 1
@@ -413,21 +365,13 @@ var RENDER_STATE_TEXTURE int32=2		// 渲染纹理
 var RENDER_STATE_COLOR   int32=4		// 渲染颜色
 
 // 设备初始化，fb为外部帧缓存，非 NULL 将引用外部帧缓存（每行 4字节对齐）
-func device_init(device *Device_t, width int32, height int32, fb *uintptr) {
+func device_init(device *Device_t, width int32, height int32, fb *[][]uint32) {
 	//need := sizeof(void*) * (height * 2 + 1024) + width * height * 8
 	//char *ptr = (char*)malloc(need + 64);
 	//char *framebuf, *zbuf;
-	var i,j int32
 
 	//assert(ptr);
-	//初始化framebuffer,zbuffer
 	//device.Framebuffer = (IUINT32**)ptr;
-	for i = 0; i < height; i++ {
-		ftmp := make([]int32, width)
-		device.Framebuffer = append(device.Framebuffer,ftmp)
-		ztmp := make([]float64, width)
-		device.Zbuffer = append(device.Zbuffer,ztmp)
-	}
 	//device.zbuffer = (float**)(ptr + sizeof(void*) * height);
 	//ptr += sizeof(void*) * height * 2;
 	//device.texture = (IUINT32**) ptr;
@@ -440,8 +384,17 @@ func device_init(device *Device_t, width int32, height int32, fb *uintptr) {
 	//	device->framebuffer[j] = (IUINT32*)(framebuf + width * 4 * j);
 	//	device->zbuffer[j] = (float*)(zbuf + width * 4 * j);
 	//}
-	device.Texture[0] = make([]int32,64)
-	device.Texture[1] = make([]int32,64)
+	//初始化framebuffer,zbuffer
+	var i int32
+	for i = 0; i < height; i++ {
+		ftmp := make([]uint32, width)
+		device.Framebuffer = append(device.Framebuffer,ftmp)
+		ztmp := make([]float64, width)
+		device.Zbuffer = append(device.Zbuffer,ztmp)
+	}
+
+	device.Texture[0] = make([]uint32,64)
+	device.Texture[1] = make([]uint32,64)
 	//memset(device->texture[0], 0, 64);
 	device.Tex_width = 2
 	device.Tex_height = 2
@@ -458,18 +411,177 @@ func device_init(device *Device_t, width int32, height int32, fb *uintptr) {
 func device_destroy(device *Device_t){
 
 }
+// 设置当前纹理
+func device_set_texture(device *Device_t, bits [][]uint32, pitch int64, w int32,h int32){
+	if w > 1024 || h > 1024 {
+		panic("must less than 1024*1024")
+	}
+	// 重新计算每行纹理的指针
+	var j int32
+	for j=0 ;j<h; j++{
+		device.Texture[j] = bits[j]
+	}
 
+	device.Tex_height = h
+	device.Tex_width = w
+	device.Max_u = float64(w-1)
+	device.Max_v = float64(h-1)
+
+}
+
+// 清空 framebuffer 和 zbuffer
 func device_clear(device *Device_t,mode int32){
 	var x ,y int32
-	var height int32 = device.Height
-	for y = 0; y < device.Height; y++ {
+	height := device.Height
+	for y = 0; y < height; y++ {
 		dst := device.Framebuffer[y]
 		cc := (height - 1 - y) * 230 / (height - 1)
 		cc = (cc << 16) | (cc << 8) | cc
 		if mode == 0 { cc = int32(device.Background)}
-		for x = device.Width; x > 0;  x--) dst[0] = cc;
+		for x = device.Width; x > 0;  x-- {
+			dst[x] = uint32(cc)
+		}
+	}
+	for y =0; y < height; y++ {
+		dst := device.Zbuffer[y]
+		for x = device.Width; x>0; x-- {
+			dst[x] = 0
+		}
 	}
 }
+// 画点
+func device_pixel(device *Device_t,x int32,y int32, color uint32){
+	if x < device.Width && y < device.Height{
+		device.Framebuffer[y][x] = color
+	}
+}
+
+// 画线
+func device_draw_line(device *Device_t,x1 int32,y1 int32,x2 int32,y2 int32,c uint32){
+	if x1 == x2 && y1 == y2{
+		device_pixel(device,x1,y1,c)
+	}else if x1 == x2{
+		inc := -1
+		if y1 <= y2{ inc =1}
+		for y:=y1 ;y!=y2;y+=int32(inc){device_pixel(device,x1,y,c)}
+		device_pixel(device,x2,y2,c)
+	}else if y1 == y2{
+		inc := -1
+		if x1 <= x2{ inc =1}
+		for x:=x1 ;x!=x2;x+=int32(inc){device_pixel(device,x,y1,c)}
+		device_pixel(device,x2,y2,c)
+	}else{
+		dx := x1 -x2
+		if x1 < x2 {dx = -dx}
+		dy := y1 - y2
+		if y1 < y2 {dy = -dy}
+		var rem int32 = 0
+
+		if dx >= dy{
+			if x2 < x1 {
+				x1,x2 = x2,x1
+				y1,y2 = y2,y1
+			}
+			y := y1
+			for x:=x1;x <= x2;x++ {
+				device_pixel(device,x,y,c)
+				rem += dy
+				if rem >= dx{
+					rem -= dx
+					if y2 >= y1{
+						y++
+					}else{
+						y--
+					}
+					device_pixel(device,x,y,c)
+				}
+			}
+			device_pixel(device,x2,y2,c)
+		}else{
+			x1,x2 = x2,x1
+			y1,y2 = y2,y1
+			x := x1
+			for y:=y1;y<=y2;y++{
+				device_pixel(device,x,y,c)
+				rem += dx
+				if rem >= dy{
+					rem -=dy
+					if x2 >= x1{
+						x++
+					}else{
+						x--
+					}
+					device_pixel(device,x,y,c)
+				}
+			}
+			device_pixel(device,x2,y2,c)
+		}
+	}
+}
+
+// 根据坐标读取纹理
+func device_texture_read(device *Device_t,u float64,v float64) uint32{
+	u = u *device.Max_u
+	v = v *device.Max_v
+	x := int32(u+0.5)
+	y := int32(v+0.5)
+	x = CMID(x,0,device.Tex_width -1)
+	y = CMID(y,0,device.Tex_height -1)
+	return device.Texture[x][y]
+}
+
+//=====================================================================
+// 渲染实现
+//=====================================================================
+
+// 绘制扫描线
+func device_draw_scanline(device *Device_t,scanline *Scanline_t){
+
+}
+// 主渲染函数
+func device_render_trap(device *Device_t,trap *Trapezold_t){
+
+}
+// 根据 render_state 绘制原始三角形
+func device_draw_primitive(device *Device_t, v1,v2,v3 *Vertex_t){
+	var p1, p2, p3, c1, c2, c3 Vector_t
+	render_state := device.Render_state
+	// 按照 Transform 变化
+	transform_apply(&device.Transform, &c1, (*Vector_t)(&v1.Pos))
+	transform_apply(&device.Transform, &c2, (*Vector_t)(&v2.Pos))
+	transform_apply(&device.Transform, &c3, (*Vector_t)(&v3.Pos))
+
+	// 裁剪，注意此处可以完善为具体判断几个点在 cvv内以及同cvv相交平面的坐标比例
+	// 进行进一步精细裁剪，将一个分解为几个完全处在 cvv内的三角形
+	if transform_check_cvv(&c1) != 0 {return}
+	if  transform_check_cvv(&c2) != 0 {return}
+	if  transform_check_cvv(&c3) != 0 {return}
+
+	// 归一化
+	transform_homogenize(&device.Transform, &p1, &c1)
+	transform_homogenize(&device.Transform, &p2, &c2)
+	transform_homogenize(&device.Transform, &p3, &c3)
+
+
+	if render_state & RENDER_STATE_WIREFRAME ==1 {		// 线框绘制
+		device_draw_line(device, int32(p1.X), int32(p1.Y), int32(p2.X), int32(p2.Y), device.Foreground)
+		device_draw_line(device, int32(p1.X), int32(p1.Y), int32(p3.X), int32(p3.Y), device.Foreground)
+		device_draw_line(device, int32(p3.X), int32(p3.Y),int32( p2.X), int32(p2.Y), device.Foreground)
+	}
+}
+
+//=====================================================================
+// Win32 窗口及图形绘制：为 device 提供一个 DibSection 的 FB
+//=====================================================================
+var screen_ob win.HBITMAP
+var screen_w ,screen_h int32
+var screen_exit int32 = 0
+var screen_pitch int64
+var screen_keys [512]int32
+var screen_dc win.HDC
+var screen_hb win.HBITMAP
+var screen_handle win.HWND
+var screen_fb *uint8
 
 func screen_init(w int32,h int32,title string)(int){
 	//hInst := win.GetModuleHandle(nil)
@@ -518,9 +630,14 @@ func screen_init(w int32,h int32,title string)(int){
 	win.ReleaseDC(screen_handle, hDC)
 
 	screen_hb = win.CreateDIBSection(screen_dc, &bi.BmiHeader, win.DIB_RGB_COLORS, &ptr, 0, 0)
-	if (screen_hb == 0){
+	switch screen_hb {
+	case 0, win.ERROR_INVALID_PARAMETER:
+		fmt.Println("CreateDIBSection failed")
 		return -3
 	}
+	//if (screen_hb == 0){
+	//	return -3
+	//}
 	screen_ob = win.HBITMAP(win.SelectObject(screen_dc, win.HGDIOBJ(screen_hb)))
 	screen_w = w
 	screen_h = h
@@ -541,9 +658,21 @@ func screen_init(w int32,h int32,title string)(int){
 	screen_dispatch()
 
 	screen_fb = (*uint8)(ptr)
-
 	for i :=0;i<int(w*h*4);i++{
 		*screen_fb[i] = 0
+	}
+	// Fill the image
+	bitmap_array := (*[1 << 30]byte)(unsafe.Pointer(lpBits))
+	i := 0
+	for y := im.Bounds().Min.Y; y != im.Bounds().Max.Y; y++ {
+		for x := im.Bounds().Min.X; x != im.Bounds().Max.X; x++ {
+			r, g, b, a := im.At(x, y).RGBA()
+			bitmap_array[i+3] = byte(a >> 8)
+			bitmap_array[i+2] = byte(r >> 8)
+			bitmap_array[i+1] = byte(g >> 8)
+			bitmap_array[i+0] = byte(b >> 8)
+			i += 4
+		}
 	}
 	return 0
 }
@@ -592,4 +721,120 @@ func screen_update() {
 	win.BitBlt(hDC, 0, 0, screen_w, screen_h, screen_dc, 0, 0, win.SRCCOPY)
 	win.ReleaseDC(screen_handle, hDC)
 	screen_dispatch()
+}
+
+//=====================================================================
+// 主程序
+//=====================================================================
+var mesh = [8]Vertex_t{
+{ Point_t{  1, -1,  1, 1 }, Texcoord_t{ 0, 0 }, Color_t{ 1.0, 0.2, 0.2 }, 1 },
+{ Point_t{ -1, -1,  1, 1 }, Texcoord_t{ 0, 1 }, Color_t{ 0.2, 1.0, 0.2 }, 1 },
+{ Point_t{ -1,  1,  1, 1 }, Texcoord_t{ 1, 1 }, Color_t{ 0.2, 0.2, 1.0 }, 1 },
+{ Point_t{  1,  1,  1, 1 }, Texcoord_t{ 1, 0 }, Color_t{ 1.0, 0.2, 1.0 }, 1 },
+{ Point_t{  1, -1, -1, 1 }, Texcoord_t{ 0, 0 }, Color_t{ 1.0, 1.0, 0.2 }, 1 },
+{ Point_t{ -1, -1, -1, 1 }, Texcoord_t{ 0, 1 }, Color_t{ 0.2, 1.0, 1.0 }, 1 },
+{ Point_t{ -1,  1, -1, 1 }, Texcoord_t{ 1, 1 }, Color_t{ 1.0, 0.3, 0.3 }, 1 },
+{ Point_t{  1,  1, -1, 1 }, Texcoord_t{ 1, 0 }, Color_t{ 0.2, 1.0, 0.3 }, 1 },
+}
+
+func draw_plane(device *Device_t ,a,b,c,d int){
+	p1 := mesh[a]
+	p2 := mesh[b]
+	p3 := mesh[c]
+	p4 := mesh[d]
+	p1.Tc.U = 0
+	p1.Tc.V = 0
+	p2.Tc.U = 0
+	p2.Tc.V = 1
+	p3.Tc.U = 1
+	p3.Tc.V = 1
+	p4.Tc.U = 1
+	p4.Tc.V = 0
+	device_draw_primitive(device, &p1, &p2, &p3)
+}
+
+func draw_box(device *Device_t,theta float64){
+	var m Matrix_t
+	matrix_set_rotate(&m,-1,-0.5,1,theta)
+	device.Transform.World = m
+	transform_update(&device.Transform)
+	draw_plane(device, 0, 1, 2, 3)
+}
+func camera_at_zero(device *Device_t,x,y,z float64){
+	eye := Vector_t{x,y,z,1}
+	at := Vector_t{0,0,0,1}
+	up := Vector_t{0,0,1,1}
+	matrix_set_lookat(&device.Transform.View,&eye,&at,&up)
+	transform_update(&device.Transform)
+
+}
+
+func init_texture(device *Device_t){
+	var textrue [][]uint32
+	for j:=0;j<256;j++{
+		for i:=0;i<256;i++{
+			x := i/32
+			y := j/32
+			if ((x+y)&1) ==1 {
+				textrue[j][i] = 0xffffff
+			}else{
+				textrue[j][i] = 0x3fbcef
+			}
+		}
+	}
+	device_set_texture(device,textrue,256*4,256,256)
+}
+
+
+func init(){
+	fmt.Println("init")
+}
+
+func main(){
+	fmt.Println("main")
+	var device Device_t
+	//var inTe, outTE *walk.TextEdit
+
+	//MainWindow{
+	//	Title:	"SCREAMO",
+	//	MinSize: Size{600,800},
+	//	Layout: VBox{},
+	//}.Run()
+	pos := 3.5
+	var alpha float64 = 1
+	kbhit := 0
+	indicator := 0
+	states := []int32{ RENDER_STATE_TEXTURE, RENDER_STATE_COLOR, RENDER_STATE_WIREFRAME }
+	screen_init(800, 600, "go mini3d")
+
+	device_init(&device,800,600,screen_fb)
+	camera_at_zero(&device,pos,0,0)
+
+	init_texture(&device)
+	device.Render_state = RENDER_STATE_TEXTURE
+	for screen_exit == 0 && screen_keys[win.VK_ESCAPE] ==0 {
+		screen_dispatch()
+		device_clear(&device, 1)
+		camera_at_zero(&device, pos, 0, 0)
+
+		if screen_keys[win.VK_UP] != 0{ pos -= 0.01}
+		if screen_keys[win.VK_DOWN] != 0{pos += 0.01}
+		if screen_keys[win.VK_LEFT] != 0 {alpha += 0.01}
+		if screen_keys[win.VK_RIGHT] != 0 {alpha -= 0.01}
+
+		if screen_keys[win.VK_SPACE] !=0 {
+			if kbhit == 0 {
+				kbhit = 1
+				indicator +=1
+				if indicator >= 3 {indicator = 0}
+				device.Render_state = states[indicator]
+			}
+		}else {
+			kbhit = 0
+		}
+
+		draw_box(&device, alpha)
+		screen_update()
+		time.Sleep(1)
+	}
 }
