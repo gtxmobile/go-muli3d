@@ -8,7 +8,6 @@ import (
 	"unsafe"
 	"syscall"
 	"time"
-	"github.com/lxn/walk/declarative"
 )
 
 type Matrix_t struct{
@@ -157,7 +156,7 @@ func matrix_set_translate(m *Matrix_t, x float64,y float64, z float64){
 
 }
 //平移
-func matrix_set_scale(m *Matrix_t, x float64,y float64, z float64){
+func matrix_set_scale(m *Matrix_t, x ,y, z float64){
 	matrix_set_identiry(m)
 	m.M[0][0] = x
 	m.M[1][1] = y
@@ -165,7 +164,7 @@ func matrix_set_scale(m *Matrix_t, x float64,y float64, z float64){
 
 }
 //从四元数构造旋转矩阵
-func matrix_set_rotate(m *Matrix_t, x float64,y float64, z float64, theta float64){
+func matrix_set_rotate(m *Matrix_t, x ,y,z, theta float64){
 	qsin := math.Sin(theta * 0.5)
 	qcos := math.Cos(theta * 0.5)
 	vec := Vector_t{x,y,z,1.0	}
@@ -205,7 +204,7 @@ func matrix_set_rotate(m *Matrix_t, x float64,y float64, z float64, theta float6
 
 	}
 
-func matrix_set_lookat(m *Matrix_t,eye *Vector_t,at *Vector_t,up *Vector_t) {
+func matrix_set_lookat(m *Matrix_t,eye ,at ,up *Vector_t) {
 	var xaxis,yaxis,zaxis Vector_t
 	vector_sub(&zaxis,at,eye)
 	vector_normalize(&zaxis)
@@ -267,14 +266,18 @@ func transform_update(ts *Transform_t){
 
 
 //初始化、设置屏幕长宽
-func transform_init(ts *Transform_t, width int32,height int32){
+func transform_init(ts *Transform_t, width ,height int32){
 	aspect := float64(width)/float64(height)
 	matrix_set_identiry(&ts.World)
 	matrix_set_identiry(&ts.View)
 	matrix_set_perspective(&ts.Projection,math.Pi *0.5,aspect,1.0,500.0)
+	ts.W = float64(width)
+	ts.H = float64(height)
+	transform_update(ts)
+
 }
 // 将矢量 x 进行 project
-func transform_apply(ts *Transform_t,y *Vector_t, x *Vector_t){
+func transform_apply(ts *Transform_t,y , x *Vector_t){
 	matrix_apply(y,x,&ts.Transform)
 }
 // 检查齐次坐标同 cvv 的边界用于视锥裁剪
@@ -286,11 +289,11 @@ func transform_check_cvv(v *Vector_t)(int){
 	if v.X < -w {check |= 4}
 	if v.X > w {check |= 8}
 	if v.Y < -w {check |= 16}
-	if v.Y < w {check |= 32}
+	if v.Y > w {check |= 32}
 	return check
 }
 // 归一化，得到屏幕坐标
-func transform_homogenize(ts *Transform_t, y *Vector_t, x *Vector_t){
+func transform_homogenize(ts *Transform_t, y , x *Vector_t){
 	rhw := 1/x.W
 	y.X = (x.X * rhw +1)*ts.W*0.5
 	y.Y = (1-x.Y*rhw) * ts.H * 0.5
@@ -329,18 +332,156 @@ type Edge_t struct {
 type Trapezold_t struct{
 	Top float64
 	Bottom float64
-	left Edge_t
-	right Edge_t
+	Left Edge_t
+	Right Edge_t
 }
 
 type Scanline_t struct {
 	V Vertex_t
 	Step Vertex_t
-	X int
-	Y int
-	Z int
+	X int32
+	Y int32
+	W int32
 }
 
+func vertex_rhw_init(v *Vertex_t){
+	rhw := 1/ v.Pos.W
+	v.Rhw *= rhw
+	v.Tc.U *= rhw
+	v.Tc.V *= rhw
+	v.Color.R *= rhw
+	v.Color.G *= rhw
+	v.Color.B *= rhw
+}
+
+func vertex_interp(y,x1,x2 *Vertex_t,t float64){
+	vector_interp((*Vector_t)(&y.Pos),(*Vector_t)(&x1.Pos),(*Vector_t)(&x2.Pos),t )
+	y.Tc.U = interp(x1.Tc.U,x2.Tc.U,t)
+	y.Tc.V = interp(x1.Tc.V,x2.Tc.V,t)
+	y.Color.R = interp(x1.Color.R,x2.Color.R,t)
+	y.Color.G = interp(x1.Color.G,x2.Color.G,t)
+	y.Color.B = interp(x1.Color.B,x2.Color.B,t)
+	y.Rhw = interp(x1.Rhw,x2.Rhw,t)
+}
+
+func vertex_division(y,x1,x2 *Vertex_t,w float64){
+	inv := 1/w
+	y.Pos.X = (x2.Pos.X - x1.Pos.X) * inv
+	y.Pos.Y = (x2.Pos.Y - x1.Pos.Y) * inv
+	y.Pos.Z = (x2.Pos.Z - x1.Pos.Z) * inv
+	y.Pos.W = (x2.Pos.W - x1.Pos.W) * inv
+	y.Tc.U = (x2.Tc.U - x1.Tc.U) * inv
+	y.Tc.V = (x2.Tc.V - x1.Tc.V) * inv
+	y.Color.R = (x2.Color.R-x1.Color.R) * inv
+	y.Color.G = (x2.Color.G-x1.Color.G) * inv
+	y.Color.B = (x2.Color.B-x1.Color.B) * inv
+	y.Rhw = (x2.Rhw-x1.Rhw) * inv
+}
+
+func vertex_add(y,x *Vertex_t){
+	y.Pos.X += x.Pos.X
+	y.Pos.Y += x.Pos.Y
+	y.Pos.Z += x.Pos.Z
+	y.Pos.W += x.Pos.W
+	y.Rhw += x.Rhw
+	y.Tc.U += x.Tc.U
+	y.Tc.V += x.Tc.V
+	y.Color.R += x.Color.R
+	y.Color.G += x.Color.G
+	y.Color.B += x.Color.B
+}
+// 根据三角形生成 0-2 个梯形，并且返回合法梯形的数量
+func trapezoid_init_triangle(trap *[2]Trapezold_t,p1,p2,p3 *Vertex_t)(int){
+	if p1.Pos.Y > p2.Pos.Y { p1,p2 = p2,p1 }
+	if p1.Pos.Y > p3.Pos.Y { p1,p3 = p3,p1 }
+	if p2.Pos.Y > p3.Pos.Y { p2,p3 = p3,p2 }
+	//直线的情况
+	if p1.Pos.Y == p2.Pos.Y && p1.Pos.Y == p3.Pos.Y {return 0}
+	if p1.Pos.X == p2.Pos.X && p1.Pos.X == p3.Pos.X {return 0}
+	//
+
+	if p1.Pos.Y == p2.Pos.Y {
+		if p1.Pos.X > p2.Pos.X {p1,p2 = p2,p1}
+		(*trap)[0].Top = p1.Pos.Y
+		(*trap)[0].Bottom = p3.Pos.Y
+		(*trap)[0].Left.V1 = *p1
+		(*trap)[0].Left.V2 = *p3
+		(*trap)[0].Right.V1 = *p2
+		(*trap)[0].Right.V2 = *p3
+		if (*trap)[0].Top < (*trap)[0].Bottom {
+			return 1
+		}else{
+			return 0
+		}
+	}
+
+	if p2.Pos.Y == p3.Pos.Y {
+		if p2.Pos.X > p3.Pos.X {p3,p2 = p2,p3}
+		(*trap)[0].Top = p1.Pos.Y
+		(*trap)[0].Bottom = p3.Pos.Y
+		(*trap)[0].Left.V1 = *p1
+		(*trap)[0].Left.V2 = *p2
+		(*trap)[0].Right.V1 = *p1
+		(*trap)[0].Right.V2 = *p3
+		if (*trap)[0].Top < (*trap)[0].Bottom {
+			return 1
+		}else{
+			return 0
+		}
+	}
+
+	(*trap)[0].Top = p1.Pos.Y
+	(*trap)[0].Bottom = p2.Pos.Y
+	(*trap)[1].Top = p2.Pos.Y
+	(*trap)[1].Bottom = p3.Pos.Y
+
+	k := (p3.Pos.Y - p1.Pos.Y) / (p2.Pos.Y  - p1.Pos.Y)
+	x := p1.Pos.X + (p2.Pos.X - p1.Pos.X) * k
+
+	if x <= p3.Pos.X {
+		(*trap)[0].Left.V1 = *p1
+		(*trap)[0].Left.V2 = *p2
+		(*trap)[0].Right.V1 = *p1
+		(*trap)[0].Right.V2 = *p3
+		(*trap)[1].Left.V1 = *p2
+		(*trap)[1].Left.V2 = *p3
+		(*trap)[1].Right.V1 = *p1
+		(*trap)[1].Right.V2 = *p3
+	} else {
+		(*trap)[0].Left.V1 = *p1
+		(*trap)[0].Left.V2 = *p3
+		(*trap)[0].Right.V1 = *p1
+		(*trap)[0].Right.V2 = *p2
+		(*trap)[1].Left.V1 = *p1
+		(*trap)[1].Left.V2 = *p3
+		(*trap)[1].Right.V1 = *p2
+		(*trap)[1].Right.V2 = *p3
+	}
+	return 2
+}
+
+// 按照 Y 坐标计算出左右两条边纵坐标等于 Y 的顶点
+func trapezoid_edge_interp(trap *Trapezold_t, y float64){
+	s1 := trap.Left.V2.Pos.Y  - trap.Left.V1.Pos.Y
+	s2 := trap.Right.V2.Pos.Y  - trap.Right.V1.Pos.Y
+	t1 := (y - trap.Left.V1.Pos.Y) / s1
+	t2 := (y - trap.Right.V1.Pos.Y) / s2
+	vertex_interp(&trap.Left.V,&trap.Left.V1,&trap.Left.V2,t1)
+	vertex_interp(&trap.Right.V,&trap.Right.V1,&trap.Right.V2,t2)
+}
+
+// 根据左右两边的端点，初始化计算出扫描线的起点和步长
+func trapezoid_init_scan_line(trap *Trapezold_t,scanline *Scanline_t,y int32){
+	width := trap.Right.V.Pos.X - trap.Left.V.Pos.X
+	scanline.X = int32(trap.Left.V.Pos.X + 0.5)
+	scanline.W = int32(trap.Right.V.Pos.X + 0.5) - scanline.X
+	scanline.Y = y
+	scanline.V = trap.Left.V
+	if trap.Left.V.Pos.X >= trap.Right.V.Pos.X {
+		scanline.W = 0
+	}
+	vertex_division(&scanline.Step,&trap.Left.V,&trap.Right.V,width)
+}
 //=====================================================================
 // 渲染设备
 //=====================================================================
@@ -365,20 +506,11 @@ var RENDER_STATE_TEXTURE int32=2		// 渲染纹理
 var RENDER_STATE_COLOR   int32=4		// 渲染颜色
 
 // 设备初始化，fb为外部帧缓存，非 NULL 将引用外部帧缓存（每行 4字节对齐）
-func device_init(device *Device_t, width int32, height int32, fb *[][]uint32) {
+func device_init(device *Device_t, width int32, height int32, fb *[]uint32) {
 	//need := sizeof(void*) * (height * 2 + 1024) + width * height * 8
 	//char *ptr = (char*)malloc(need + 64);
 	//char *framebuf, *zbuf;
 
-	//assert(ptr);
-	//device.Framebuffer = (IUINT32**)ptr;
-	//device.zbuffer = (float**)(ptr + sizeof(void*) * height);
-	//ptr += sizeof(void*) * height * 2;
-	//device.texture = (IUINT32**) ptr;
-	//ptr += sizeof(void*) * 1024;
-	//framebuf = (char*)ptr;
-	//zbuf = (char*)ptr + width * height * 4;
-	//ptr += width * height * 8;
 	//if (fb != NULL) framebuf = (char*)fb;
 	//for j = 0; j < height; j++ {
 	//	device->framebuffer[j] = (IUINT32*)(framebuf + width * 4 * j);
@@ -386,16 +518,24 @@ func device_init(device *Device_t, width int32, height int32, fb *[][]uint32) {
 	//}
 	//初始化framebuffer,zbuffer
 	var i int32
-	for i = 0; i < height; i++ {
-		ftmp := make([]uint32, width)
-		device.Framebuffer = append(device.Framebuffer,ftmp)
-		ztmp := make([]float64, width)
-		device.Zbuffer = append(device.Zbuffer,ztmp)
-	}
+	if fb != nil {
+		for i = 0; i < height; i++ {
+			//ftmp := make([]uint32, width)
+			//device.Framebuffer = append(device.Framebuffer,ftmp)
+			s := width * i
+			e := s+ width
+			device.Framebuffer = append(device.Framebuffer,(*fb)[s:e])
+			ztmp := make([]float64, width)
+			device.Zbuffer = append(device.Zbuffer,ztmp)
 
-	device.Texture[0] = make([]uint32,64)
-	device.Texture[1] = make([]uint32,64)
-	//memset(device->texture[0], 0, 64);
+		}
+
+	}
+	//for i =0;i<2 ; i++{
+	//	ttmp := make([]uint32,64)
+	//	device.Texture = append(device.Texture,ttmp)
+	//}
+
 	device.Tex_width = 2
 	device.Tex_height = 2
 	device.Max_u = 1.0
@@ -412,20 +552,8 @@ func device_destroy(device *Device_t){
 
 }
 // 设置当前纹理
-func device_set_texture(device *Device_t, bits [][]uint32, pitch int64, w int32,h int32){
-	if w > 1024 || h > 1024 {
-		panic("must less than 1024*1024")
-	}
-	// 重新计算每行纹理的指针
-	var j int32
-	for j=0 ;j<h; j++{
-		device.Texture[j] = bits[j]
-	}
+func device_set_texture(device *Device_t, bits *[][]uint32, pitch int64, w int32,h int32){
 
-	device.Tex_height = h
-	device.Tex_width = w
-	device.Max_u = float64(w-1)
-	device.Max_v = float64(h-1)
 
 }
 
@@ -438,13 +566,13 @@ func device_clear(device *Device_t,mode int32){
 		cc := (height - 1 - y) * 230 / (height - 1)
 		cc = (cc << 16) | (cc << 8) | cc
 		if mode == 0 { cc = int32(device.Background)}
-		for x = device.Width; x > 0;  x-- {
+		for x = 0;x<device.Width;  x++ {
 			dst[x] = uint32(cc)
 		}
 	}
 	for y =0; y < height; y++ {
 		dst := device.Zbuffer[y]
-		for x = device.Width; x>0; x-- {
+		for x = 0;x<device.Width;  x++ {
 			dst[x] = 0
 		}
 	}
@@ -498,8 +626,10 @@ func device_draw_line(device *Device_t,x1 int32,y1 int32,x2 int32,y2 int32,c uin
 			}
 			device_pixel(device,x2,y2,c)
 		}else{
-			x1,x2 = x2,x1
-			y1,y2 = y2,y1
+			if y2 < y1{
+				x1,x2 = x2,x1
+				y1,y2 = y2,y1
+			}
 			x := x1
 			for y:=y1;y<=y2;y++{
 				device_pixel(device,x,y,c)
@@ -536,11 +666,58 @@ func device_texture_read(device *Device_t,u float64,v float64) uint32{
 
 // 绘制扫描线
 func device_draw_scanline(device *Device_t,scanline *Scanline_t){
+	framebuffer := device.Framebuffer[scanline.Y]
+	zbuffer := device.Zbuffer[scanline.Y]
+	x := scanline.X
+	w := scanline.W
+	width := device.Width
+	render_state := device.Render_state
+	for ; w>0;w-- {
+		if (x >= 0 && x<width){
+			rhw := scanline.V.Rhw
+			if rhw >= zbuffer[x]{
+				iw:= 1/rhw
+				zbuffer[x] = rhw
+				if (render_state & RENDER_STATE_COLOR) >0{
+					r:= scanline.V.Color.R *iw
+					g:= scanline.V.Color.G *iw
+					b:= scanline.V.Color.B *iw
+					R := int32(r * 255)
+					G := int32(g * 255)
+					B := int32(b * 255)
+					R = CMID(R, 0, 255)
+					G = CMID(G, 0, 255)
+					B = CMID(B, 0, 255)
+					framebuffer[x] = uint32((R << 16) | (G << 8) | (B))
+				}
+				if (render_state & RENDER_STATE_TEXTURE) > 0{
+					u := scanline.V.Tc.U * iw
+					v := scanline.V.Tc.V * iw
+					cc := device_texture_read(device,u,v)
+					framebuffer[x] = cc
+				}
+
+			}
+		}
+		vertex_add(&scanline.V,&scanline.Step)
+		if x >= width {break}
+		x ++
+	}
 
 }
 // 主渲染函数
 func device_render_trap(device *Device_t,trap *Trapezold_t){
-
+	var scanline Scanline_t
+	top := int32(trap.Top + 0.5)
+	bottom := int32(trap.Bottom + 0.5)
+	for j := top;j<bottom; j++ {
+		if j >= 0 && j < device.Height {
+			trapezoid_edge_interp(trap,float64(j)+0.5)
+			trapezoid_init_scan_line(trap,&scanline,j)
+			device_draw_scanline(device,&scanline)
+		}
+		if j >= device.Height {break}
+	}
 }
 // 根据 render_state 绘制原始三角形
 func device_draw_primitive(device *Device_t, v1,v2,v3 *Vertex_t){
@@ -553,7 +730,7 @@ func device_draw_primitive(device *Device_t, v1,v2,v3 *Vertex_t){
 
 	// 裁剪，注意此处可以完善为具体判断几个点在 cvv内以及同cvv相交平面的坐标比例
 	// 进行进一步精细裁剪，将一个分解为几个完全处在 cvv内的三角形
-	if transform_check_cvv(&c1) != 0 {return}
+	if  transform_check_cvv(&c1) != 0 {return}
 	if  transform_check_cvv(&c2) != 0 {return}
 	if  transform_check_cvv(&c3) != 0 {return}
 
@@ -562,8 +739,29 @@ func device_draw_primitive(device *Device_t, v1,v2,v3 *Vertex_t){
 	transform_homogenize(&device.Transform, &p2, &c2)
 	transform_homogenize(&device.Transform, &p3, &c3)
 
+	if (render_state & (RENDER_STATE_TEXTURE | RENDER_STATE_COLOR)) > 0{
 
-	if render_state & RENDER_STATE_WIREFRAME ==1 {		// 线框绘制
+		t1 := *v1
+		t2 := *v2
+		t3 := *v3
+		t1.Pos = Point_t(p1)
+		t2.Pos = Point_t(p2)
+		t3.Pos = Point_t(p3)
+		t1.Pos.W = c1.W
+		t2.Pos.W = c2.W
+		t3.Pos.W = c3.W
+		vertex_rhw_init(&t1)	// 初始化 w
+		vertex_rhw_init(&t2)	// 初始化 w
+		vertex_rhw_init(&t3)	// 初始化 w
+
+		var traps [2]Trapezold_t
+		// 拆分三角形为0-2个梯形，并且返回可用梯形数量
+		n := trapezoid_init_triangle(&traps, &t1, &t2, &t3)
+		if n >= 1 {device_render_trap(device, &traps[0])}
+		if n >= 2 {device_render_trap(device, &traps[1])}
+	}
+
+	if (render_state & RENDER_STATE_WIREFRAME) ==1 {		// 线框绘制
 		device_draw_line(device, int32(p1.X), int32(p1.Y), int32(p2.X), int32(p2.Y), device.Foreground)
 		device_draw_line(device, int32(p1.X), int32(p1.Y), int32(p3.X), int32(p3.Y), device.Foreground)
 		device_draw_line(device, int32(p3.X), int32(p3.Y),int32( p2.X), int32(p2.Y), device.Foreground)
@@ -581,7 +779,7 @@ var screen_keys [512]int32
 var screen_dc win.HDC
 var screen_hb win.HBITMAP
 var screen_handle win.HWND
-var screen_fb *uint8
+var screen_fb []uint32
 
 func screen_init(w int32,h int32,title string)(int){
 	//hInst := win.GetModuleHandle(nil)
@@ -607,7 +805,7 @@ func screen_init(w int32,h int32,title string)(int){
 	var rect = win.RECT { 0, 0, w, h }
 	screen_close()
 	wc.HbrBackground = win.HBRUSH(win.GetStockObject(win.BLACK_BRUSH))
-	wc.HInstance = win.GetModuleHandle(nil);
+	wc.HInstance = win.GetModuleHandle(nil)
 	wc.HCursor = win.LoadCursor(0, win.MAKEINTRESOURCE(win.IDC_ARROW))
 	if win.RegisterClassEx(&wc) == 0{
 		return -1
@@ -623,13 +821,13 @@ func screen_init(w int32,h int32,title string)(int){
 		return -2
 	}
 
-	var ptr unsafe.Pointer
+	var lpBits unsafe.Pointer
 	//screen_exit := 0
 	hDC := win.GetDC(screen_handle)
 	screen_dc = win.CreateCompatibleDC(hDC)
 	win.ReleaseDC(screen_handle, hDC)
 
-	screen_hb = win.CreateDIBSection(screen_dc, &bi.BmiHeader, win.DIB_RGB_COLORS, &ptr, 0, 0)
+	screen_hb = win.CreateDIBSection(screen_dc, &bi.BmiHeader, win.DIB_RGB_COLORS, &lpBits, 0, 0)
 	switch screen_hb {
 	case 0, win.ERROR_INVALID_PARAMETER:
 		fmt.Println("CreateDIBSection failed")
@@ -656,24 +854,15 @@ func screen_init(w int32,h int32,title string)(int){
 
 	win.ShowWindow(screen_handle, win.SW_NORMAL)
 	screen_dispatch()
+	// Fill the bit map image
+	screen_fb = (*[1<<23]uint32)(lpBits)[:]
 
-	screen_fb = (*uint8)(ptr)
-	for i :=0;i<int(w*h*4);i++{
-		*screen_fb[i] = 0
+	//frambuffer := (*[w*h*4]uint8)(lpBits)
+	//*frambuffer = [w*h*4]uint8{}
+	for i :=0;i<int(w*h);i++{
+		screen_fb[i] = 0
 	}
-	// Fill the image
-	bitmap_array := (*[1 << 30]byte)(unsafe.Pointer(lpBits))
-	i := 0
-	for y := im.Bounds().Min.Y; y != im.Bounds().Max.Y; y++ {
-		for x := im.Bounds().Min.X; x != im.Bounds().Max.X; x++ {
-			r, g, b, a := im.At(x, y).RGBA()
-			bitmap_array[i+3] = byte(a >> 8)
-			bitmap_array[i+2] = byte(r >> 8)
-			bitmap_array[i+1] = byte(g >> 8)
-			bitmap_array[i+0] = byte(b >> 8)
-			i += 4
-		}
-	}
+
 	return 0
 }
 
@@ -751,6 +940,7 @@ func draw_plane(device *Device_t ,a,b,c,d int){
 	p4.Tc.U = 1
 	p4.Tc.V = 0
 	device_draw_primitive(device, &p1, &p2, &p3)
+	device_draw_primitive(device, &p3, &p4, &p1)
 }
 
 func draw_box(device *Device_t,theta float64){
@@ -759,6 +949,11 @@ func draw_box(device *Device_t,theta float64){
 	device.Transform.World = m
 	transform_update(&device.Transform)
 	draw_plane(device, 0, 1, 2, 3)
+	draw_plane(device, 4, 5, 6, 7)
+	draw_plane(device, 0, 4, 5, 1)
+	draw_plane(device, 1, 5, 6, 2)
+	draw_plane(device, 2, 6, 7, 3)
+	draw_plane(device, 3, 7, 4, 0)
 }
 func camera_at_zero(device *Device_t,x,y,z float64){
 	eye := Vector_t{x,y,z,1}
@@ -770,19 +965,31 @@ func camera_at_zero(device *Device_t,x,y,z float64){
 }
 
 func init_texture(device *Device_t){
-	var textrue [][]uint32
+	w :=256
+	h :=256
+	device.Texture = make([][]uint32,h)
 	for j:=0;j<256;j++{
+		device.Texture[j] = make([]uint32,w)
 		for i:=0;i<256;i++{
 			x := i/32
 			y := j/32
 			if ((x+y)&1) ==1 {
-				textrue[j][i] = 0xffffff
+				device.Texture[j][i] = 0xffffff
 			}else{
-				textrue[j][i] = 0x3fbcef
+				device.Texture[j][i] = 0x3fbcef
 			}
 		}
 	}
-	device_set_texture(device,textrue,256*4,256,256)
+	if w > 1024 || h > 1024 {
+		panic("must less than 1024*1024")
+	}
+	// 重新计算每行纹理的指针
+
+	device.Tex_height = int32(h)
+	device.Tex_width = int32(w)
+	device.Max_u = float64(w-1)
+	device.Max_v = float64(h-1)
+	//device_set_texture(device,&textrue,256,256,256)
 }
 
 
@@ -805,9 +1012,11 @@ func main(){
 	kbhit := 0
 	indicator := 0
 	states := []int32{ RENDER_STATE_TEXTURE, RENDER_STATE_COLOR, RENDER_STATE_WIREFRAME }
-	screen_init(800, 600, "go mini3d")
+	if screen_init(800, 600, "go mini3d") !=0 {
+		return
+	}
 
-	device_init(&device,800,600,screen_fb)
+	device_init(&device,800,600,&screen_fb)
 	camera_at_zero(&device,pos,0,0)
 
 	init_texture(&device)
@@ -829,6 +1038,8 @@ func main(){
 				if indicator >= 3 {indicator = 0}
 				device.Render_state = states[indicator]
 			}
+			fmt.Println("Render State: ",device.Render_state)
+
 		}else {
 			kbhit = 0
 		}
