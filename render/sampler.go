@@ -179,7 +179,7 @@ func (Clamp)Do_coordf(coord float64, size float64) float64{
 func (Clamp)Do_coordi_point_1d(coord, size float64) float64{
 	return common.Clamp(coord, 0, size - 1)
 }
-func (Clamp)do_coordi_point_2d( coord *smath.Vector_t,  size *[4]int) [4]int{
+func (Clamp)Do_coordi_point_2d( coord *smath.Vector_t,  size *[4]int) [4]int{
 
  	o_coord := smath.Vector_t{common.Clamp(coord.X * float64(size[0]), 0.5, float64(size[0]) - 0.5),
 		common.Clamp(coord.Y * float64(size[1]), 0.5, float64(size[1]) - 0.5),0, 0}
@@ -187,7 +187,6 @@ func (Clamp)do_coordi_point_2d( coord *smath.Vector_t,  size *[4]int) [4]int{
 
 	return [4]int{int(common.Clamp(float64(coord_ipart[0]), 0, float64(size[0] - 1))),
 		int(common.Clamp(float64(coord_ipart[1]), 0, float64(size[1] - 1))),0, 0}
-
 }
 
 func (Clamp)Do_coordi_linear_2d( low, up *[4]int, frac, coord smath.Vector_t,  size [4]int){
@@ -235,9 +234,6 @@ func (Border) Do_coordi_point_1d(coord, size int) int{
 }
 func (Border) Do_coordi_point_2d(coord smath.Vector_t,  size [4]int) [4]int{
 
-
-
-
 	o_coord := smath.Vector_t{common.Clamp(coord.X * float64(size[0]), 0.5, float64(size[0]) - 0.5),
 		common.Clamp(coord.Y * float64(size[1]), 0.5, float64(size[1]) - 0.5),0, 0}
 	coord_ipart := [4]int{int(math.Floor(o_coord.X)), int(math.Floor(o_coord.Y)), 0, 0}
@@ -273,3 +269,38 @@ func (Border) Do_coordi_linear_2d(low, up *[4]int, frac, coord smath.Vector_t,  
 	*up = [4]int{int(common.Clamp(float64(coord_ipart[0]+1), 0, float64(size[0] - 1))),
 		int(common.Clamp(float64(coord_ipart[1]+1), 0, float64(size[1] - 1))),	0, 0}
 }
+
+//namespace coord_calculator
+//{
+//template <typename Addresser_type>
+type Addresser_type interface {
+	Do_coordf(coord float64, size int) float64
+	Do_coordi_point_1d(coord, size int) int
+	Do_coordi_point_2d(coord smath.Vector_t,  size [4]int) [4]int
+	Do_coordi_linear_2d(low, up *[4]int, frac, coord smath.Vector_t,  size [4]int)
+}
+func point_cc(addresser_type Addresser_type,coord float64, size int) int{
+	o_coord := addresser_type.Do_coordf(coord, size)
+	coord_ipart := int(math.Floor(o_coord + 0.5))
+	return addresser_type.Do_coordi_point_1d(coord_ipart, size)
+}
+
+//template <typename Addresser_type>
+func linear_cc(addresser_type Addresser_type,low, up *int, frac *float64,coord float64, size int){
+	o_coord := addresser_type.Do_coordf(coord, size);
+	coord_ipart := int(math.Floor(o_coord))
+	*low = addresser_type.Do_coordi_point_1d(coord_ipart, size)
+	*up = addresser_type.Do_coordi_point_1d(coord_ipart + 1, size);
+	*frac = o_coord - float64(coord_ipart)
+}
+
+func point_cc(addresser_type Addresser_type, coord *smath.Vector_t, size [4]int) [4]int{
+	return addresser_type.Do_coordi_point_2d(coord, size);
+}
+
+template <typename Addresser_type>
+void linear_cc(int4& low, int4& up, vec4& frac, const vec4& coord, const int4& size)
+{
+Addresser_type::do_coordi_linear_2d(low, up, frac, coord, size);
+}
+};
