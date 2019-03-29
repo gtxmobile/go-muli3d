@@ -1,4 +1,4 @@
-package common
+package fundations
 type Result uint32
 const (
 	Ok Result =iota
@@ -204,3 +204,4 @@ const (
 	Timeout
 	Ready
 )
+

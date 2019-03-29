@@ -1,7 +1,7 @@
-package render
+package buffer
 
 import (
-	"../common"
+	"../../common"
 	"fmt"
 	"github.com/stretchr/testify/assert"
 )
@@ -96,7 +96,7 @@ func (s *Surface) Pitch() uint32{
 	return ret;
 }
 
-func (surf *Surface) Smap( mapped *Internal_mapped_resource, mm map_mode)common.Result{
+func (surf *Surface) Smap( mapped *Internal_mapped_resource, mm map_mode)fundations.Result{
 	//#if SALVIA_TILED_SURFACE
 	//	//// Unimplemented
 	//	//this->untile(mapped_data_);
@@ -121,7 +121,7 @@ func (surf *Surface) Smap( mapped *Internal_mapped_resource, mm map_mode)common.
 	//#endif
 }
 
-func (surf *Surface) Unmap(*internal_mapped_resource, map_mode) common.Result{
+func (surf *Surface) Unmap(*internal_mapped_resource, map_mode) fundations.Result{
 	// No intermediate buffer needed in linear mode.
 	return common.Ok
 }
@@ -349,11 +349,11 @@ func (surf *Surface)texel_offset( x,  y,  sample uint32) {
 //#endif
 
 func (surf *Surface) Texel_address( x,  y,  sample uint32) uintptr{
-	ret := surf.Datas_.data() + surf.texel_offset(x, y, sample)
+	ret := surf.Datas_ + surf.texel_offset(x, y, sample)
 	return uintptr(&ret)
 }
 
 func (surf *Surface)texel_address( x,  y,  sample uint32) uintptr{
-	ret := surf.Datas_.data() + surf.texel_offset(x, y, sample)
+	ret := surf.Datas_ + surf.texel_offset(x, y, sample)
 	return uintptr(&ret)
 }

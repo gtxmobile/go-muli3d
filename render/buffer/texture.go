@@ -1,8 +1,8 @@
-package render
+package buffer
 
 import (
 	"math"
-	"../common"
+	"../../common"
 )
 
 type Resource_manager struct {
@@ -47,7 +47,7 @@ func (t *Texture)size(subresource_index uint32) [4]uint32{
 	if subres != nil{
 		return [4]uint32{0, 0, 0, 0}
 	}
-	return subres.Size()
+	return subres.Size_
 }
 
 func (t *Texture) max_lod(miplevel uint32) {

@@ -1,12 +1,13 @@
 package device
 import (
 	"../render"
+	"../common"
 	"github.com/lxn/win"
 )
 
 //template<typename FIColorT>
 //func copy_image_to_surface_impl(surf *render.Surface, image *win.FIBITMAP,typename FIUC<FIColorT>::CompT default_alpha = (typename FIUC<FIColorT>::CompT)(0) ) bool{
-func copy_image_to_surface_impl(surf *render.Surface, image *win.BITMAP,default_alpha interface{} ) bool{
+func Copy_image_to_surface_impl(surf *render.Surface, image *win.BITMAP,default_alpha interface{} ) bool{
 
 	if image == nil{
 		return false
@@ -34,7 +35,7 @@ func copy_image_to_surface_impl(surf *render.Surface, image *win.BITMAP,default_
 
 // Copy region of image to dest region of surface.
 // If the size of source and destination are different, it will be stretch copy with bi-linear interpolation.
-func copy_image_to_surface(surf *render.Surface, img *win.BITMAP)bool{
+func Copy_image_to_surface(surf *render.Surface, img *win.BITMAP)bool{
 	image_type := FreeImage_GetImageType( img )
 
 	if(image_type == FIT_RGBAF) {
@@ -51,7 +52,7 @@ func copy_image_to_surface(surf *render.Surface, img *win.BITMAP)bool{
 }
 
 // Load image file to new texture
-func load_texture( rend *render.Renderer, filename *string, tex_format render.Pixel_format) *render.Texture{
+func Load_texture( rend *render.Renderer, filename *string, tex_format render.Pixel_format) *render.Texture{
 	img := load_image(filename)
 	var ret *render.Texture
 	src_w := FreeImage_GetWidth(img)
@@ -72,7 +73,7 @@ func load_texture( rend *render.Renderer, filename *string, tex_format render.Pi
 // Create cube texture by six images.
 // Size of first texture is the size of cube face.
 // If other textures are not same size as first, just stretch it.
-func load_cube(rend *render.Renderer, filenames []string, tex_format render.Pixel_format) *render.Texture{
+func Load_cube(rend *render.Renderer, filenames []string, tex_format render.Pixel_format) *render.Texture{
 	ret :=render.Texture{}
 
 	image_deleter  := [](FIBITMAP* bmp){ FreeImage_Unload(bmp) }
@@ -110,33 +111,35 @@ func load_cube(rend *render.Renderer, filenames []string, tex_format render.Pixe
 	return ret;
 }
 
+
+
 // Save surface as PNG or HRD formatted file.
-func save_surface(rend *render.Renderer , surf *render.Surface, filename string, image_format render.Pixel_format){
+func Save_surface(rend *render.Renderer , surf *render.Surface, filename string, image_format render.Pixel_format){
 	fit := FIT_UNKNOWN
 	fif := FIF_UNKNOWN
 
-	FIBITMAP* image = NULL;
+	var image *FIBITMAP;
 	surface_width  := surf.Width()
 	surface_height := surf.Height()
 
 	switch(image_format){
 		case pixel_format_color_bgra8:
-			fit := FIT_BITMAP;
-			fif := FIF_PNG;
-			image := FreeImage_AllocateT(fit, surface_width, surface_height, 32, 0x0000FF, 0x00FF00, 0xFF0000);
+			fit = FIT_BITMAP;
+			fif = FIF_PNG;
+			image = FreeImage_AllocateT(fit, surface_width, surface_height, 32, 0x0000FF, 0x00FF00, 0xFF0000);
 			break;
 		case pixel_format_color_rgb32f:
 			fit := FIT_RGBF;
-			fif := FIF_HDR;
-			image := FreeImage_AllocateT(fit, surface_width, surface_height, 96);
+			fif = FIF_HDR;
+			image = FreeImage_AllocateT(fit, surface_width, surface_height, 96);
 			break;
 		default:
 			EFLIB_ASSERT(false, "Unsupport format was used.");
 		return;
 	}
 
-	mapped := Mapped_resource
-	*rend.Smap(mapped, surf, map_read);
+	mapped := Mapped_resource{}
+	rend.Smap(mapped, surf, common.Map_read)
 
 	byte* 		 surf_data = reinterpret_cast<byte*>(mapped.data);
 	byte*		 img_data = FreeImage_GetBits(image);

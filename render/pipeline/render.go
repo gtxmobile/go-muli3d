@@ -1,172 +1,13 @@
-package render
+package pipeline
 
 import (
 	"bytes"
-	"debug/macho"
 	"fmt"
 	"github.com/lxn/win"
-	"../common"
-	"sync"
-	"sync/atomic"
+	"../../common"
+
 )
 
-//render status
-type Command_id uint32
-const(
-	draw Command_id=iota
-	draw_index
-	clear_depth_stencil
-	clear_color
-	async_begin
-	async_end
-)
-
-type Render_state struct {
-
-	Cmd							Command_id
-
-	Index_buffer				*bytes.Buffer
-	Index_format				Format
-	Prim_topo					Primitive_topology
-	Base_vertex					int32
-	Start_index					uint32
-	Prim_count					uint32
-
-	Str_state					Stream_state
-	layout						*Input_layout
-
-	Vp							Viewport
-	ras_state					Raster_state_ptr
-	stencil_ref					int32
-	ds_state					*Depth_stencil_state
-	cpp_vs						*Cpp_vertex_shader
-	cpp_ps						*Cpp_pixel_shader
-	cpp_bs						*Cpp_blend_shader
-	vx_shader					*Shader_object
-	px_shader					*Shader_object
-	vx_cbuffer					Shader_cbuffer
-	px_cbuffer					Shader_cbuffer
-	vsi_ops						*Vs_input_op
-	ps_proto					*Pixel_shader_unit
-	color_targets				[]*Surface
-	depth_stencil_target		Surface
-	asyncs						[common.Aoi_count]*Async_object
-	current_async				*Async_object
-	target_vp					Viewport
-	target_sample_count			uint32
-	clear_color_target			*Surface
-	clear_ds_target				*Surface
-	clear_f						uint32
-	clear_z						float64
-	clear_stencil				uint32
-	clear_color					Color_rgba32f
-}
-
-func copy_using_state(dest ,src *Render_state){
-}
-
-type Async_status uint32
-
-const(
-	error Async_status = iota
-	timeout
-	ready
-)
-const ASYNC_RENDER_QUEUE_SIZE uint32 = 32
-type  Async_renderer struct {
-	Renderer_impl
-	State_queue_ [ASYNC_RENDER_QUEUE_SIZE]Render_state
-	State_pool_ [ASYNC_RENDER_QUEUE_SIZE]Render_state
-	Waiting_exit_ bool
-	state_pool_mutex_ sync.Mutex
-	state_queue_ []*Render_state
-	state_pool_ []*Render_state
-
-	rendering_thread_  macho.Thread
-	waiting_exit_ atomic.Value
-}
-
-func (ar *Async_renderer)init_async_render(){
-	//ar.State_queue_  = make([]Render_state,ASYNC_RENDER_QUEUE_SIZE)
-	//ar.State_pool_	=  make([]Render_state,ASYNC_RENDER_QUEUE_SIZE)
-	ar.Waiting_exit_ = false
-	for _,state := range ar.State_pool_{
-		state.Reset(Render_state{})
-	}
-}
-
-func (ar *Async_renderer)flush()common.Result{
-	for object_count_in_pool() != MAX_COMMAND_QUEUE {
-		//yield()
-	}
-	return common.Ok
-}
-
-func (ar *Async_renderer) run(){
-	//rendering_thread_ = boost::thread(&async_renderer::do_rendering, this)
-}
-
-func (ar *Async_renderer) alloc_render_state() render_state_ptr{
-	for{
-		pool_lock := sync.Mutex{}
-
-		if	len(ar.State_pool_)!= 0 {
-			ret := ar.State_pool_.back()
-			ar.State_pool_.pop_back()
-			return ret
-		}
-		//boost::thread::yield();
-	}
-}
-
-func (ar *Async_renderer)free_render_state(state *Render_state){
-	pool_lock := sync.Mutex{}
-	//state_pool_mutex_);
-	ar.State_pool_.push_back(state);
-}
-
-func (ar *Async_renderer)object_count_in_pool() uint32{
-	pool_lock := sync.Mutex{}
-	//state_pool_mutex_);
-	return ar.State_pool_.size()
-}
-
-func (ar *Async_renderer)commit_state_and_command() common.Result{
-	dest_state := alloc_render_state()
-	copy_using_state(dest_state.get(), state_.get())
-	ar.State_queue_.push_front(dest_state)
-
-	return common.Ok
-}
-
-func (ar *Async_renderer)release() common.Result{
-	if  ar.Rendering_thread_.joinable(){
-		ar.Waiting_exit_ = true
-		ar.State_queue_.push_front(render_state_ptr())
-		ar.Rendering_thread_.join()
-	}
-	return common.Ok
-}
-
-func (ar *Async_renderer)do_rendering() {
-	for ar.Waiting_exit_ {
-		var rendering_state *Render_state
-		ar.State_queue_.pop_back(&rendering_state)
-
-		if ar.rendering_state {
-			core_.update(rendering_state)
-			core_.execute()
-			free_render_state(rendering_state)
-		}
-	}
-}
-
-
-func Create_async_renderer() *Async_renderer{
-	ret := Async_renderer{}
-	ret.run()
-	return &ret
-}
 
 type Viewport struct {
 	X,Y,W,H,MinZ,MaxX float64
@@ -180,27 +21,30 @@ type Renderer_parameters struct {
 	Backbuffer_format	Pixel_format
 	Native_window		win.HWND
 }
-
+type Mapped_resource struct{
+	data interface{};
+	row_pitch, depth_pitch uint32
+};
 type Renderer interface{
 
 	Create_buffer(size int) *bytes.Buffer
 	Create_tex2d( width,  height,  num_samples uint32,fmt Pixel_format) *Texture
 	Create_texcube(width, height,  num_samples uint32,fmt Pixel_format) *Texture
 	Create_sampler( desc Sampler_desc, tex *Texture) *Sampler
-	Create_query(id Async_object_ids) *Async_object
+	Create_query(id common.Async_object_ids) *Async_object
 	Create_input_layout(elem_descs *Input_element_desc, elems_count uint32,code *Shader_object) *Input_layout
 	//create_input_layout(elem_descs *Input_element_desc, elems_count uint32, vs *Cpp_vertex_shader) *Input_layout
 
-	Mmap( m *Mapped_resource, buf *Buffer, mm Map_mode) common.Result
+	Mmap( m *Mapped_resource, buf *bytes.Buffer, mm common.Map_mode) fundations.Result
 	//map(mapped_resource&, surface_ptr const& buf, map_mode mm) 
-	Unmap() common.Result
+	Unmap() fundations.Result
 
 	// State set
-	Set_vertex_buffers (starts_slot,buffers_count uint32, buffers *bytes.Buffer,strides, offsets *uint32) common.Result
+	Set_vertex_buffers (starts_slot,buffers_count uint32, buffers *bytes.Buffer,strides, offsets *uint32) fundations.Result
 	Set_index_buffer(hbuf *bytes.Buffer, index_fmt Format)
 	Set_input_layout(layout *Input_layout)
 	Set_vertex_shader(hvs *Cpp_vertex_shader)
-	Set_primitive_topology( primtopo Primitive_topology)
+	Set_primitive_topology( primtopo common.Primitive_topology)
 	Set_vertex_shader_code(*Shader_object )
 	Set_vs_variable_value( name string, pvariable interface{}, sz uint32)
 	Set_vs_variable_pointer( name string , pvariable interface{}, sz uint32 )
@@ -239,16 +83,16 @@ type Renderer interface{
 	Get_viewport() Viewport
 
 	//render operations
-	Begin(async_obj Async_object) common.Result
-	End(async_obj Async_object) common.Result
+	Begin(async_obj Async_object) fundations.Result
+	End(async_obj Async_object) fundations.Result
 	Get_data(async_obj Async_object, data interface{}, do_not_wait bool) Async_status
 
-	Draw(startpos, primcnt uint32) common.Result
-	Draw_index(startpos,primcnt uint32, basevert int32) common.Result
+	Draw(startpos, primcnt uint32) fundations.Result
+	Draw_index(startpos,primcnt uint32, basevert int32) fundations.Result
 
-	Clear_color(color_target *Surface, c Color_rgba32f) common.Result
-	Clear_depth_stencil(depth_stencil_target *Surface, f uint32, d float64, s uint32) common.Result
-	Flush() common.Result
+	Clear_color(color_target *Surface, c Color_rgba32f) fundations.Result
+	Clear_depth_stencil(depth_stencil_target *Surface, f uint32, d float64, s uint32) fundations.Result
+	Flush() fundations.Result
 }
 
 
@@ -268,7 +112,6 @@ type Pipeline_statistics struct {
 
 }
 
-type Pixel_format int
 
 const USE_ASYNC_RENDERER =1
 func create_software_renderer() *Renderer {
@@ -371,16 +214,16 @@ func Create_query(id Async_object_ids) *Async_object
 func Create_input_layout(elem_descs *Input_element_desc, elems_count uint32,code *Shader_object) *Input_layout
 //create_input_layout(elem_descs *Input_element_desc, elems_count uint32, vs *Cpp_vertex_shader) *Input_layout
 
-func (render *Renderer_impl)Mmap( m *Mapped_resource, buf *Buffer, mm Map_mode) common.Result{
+func (render *Renderer_impl)Mmap( m *Mapped_resource, buf *Buffer, mm Map_mode) fundations.Result{
 
 }
 //map(mapped_resource&, surface_ptr const& buf, map_mode mm)
-func (render *Renderer_impl)Unmap() common.Result{
+func (render *Renderer_impl)Unmap() fundations.Result{
 
 }
 
 // State set
-func (render *Renderer_impl)Set_vertex_buffers (starts_slot,buffers_count uint32, buffers *bytes.Buffer,strides, offsets *uint32) common.Result{
+func (render *Renderer_impl)Set_vertex_buffers (starts_slot,buffers_count uint32, buffers *bytes.Buffer,strides, offsets *uint32) fundations.Result{
 
 }
 func (render *Renderer_impl)Set_index_buffer(hbuf *bytes.Buffer, index_fmt Format){
@@ -435,11 +278,11 @@ func (render *Renderer_impl)Get_blend_shader() *Cpp_blend_shader{}
 func (render *Renderer_impl)Get_viewport() Viewport{}
 
 //render operations
-func (render *Renderer_impl)Begin(async_obj Async_object) common.Result{}
-func (render *Renderer_impl)End(async_obj Async_object) common.Result{}
+func (render *Renderer_impl)Begin(async_obj Async_object) fundations.Result{}
+func (render *Renderer_impl)End(async_obj Async_object) fundations.Result{}
 func (render *Renderer_impl)Get_data(async_obj Async_object, data interface{}, do_not_wait bool) Async_status{}
-func (render *Renderer_impl)Draw(startpos, primcnt uint32) common.Result{}
-func (render *Renderer_impl)Draw_index(startpos,primcnt uint32, basevert int32) common.Result{}
-func (render *Renderer_impl)Clear_color(color_target *Surface, c Color_rgba32f) common.Result{}
-func (render *Renderer_impl)Clear_depth_stencil(depth_stencil_target *Surface, f uint32, d float64, s uint32) common.Result{}
-func (render *Renderer_impl)Flush() common.Result{}
+func (render *Renderer_impl)Draw(startpos, primcnt uint32) fundations.Result{}
+func (render *Renderer_impl)Draw_index(startpos,primcnt uint32, basevert int32) fundations.Result{}
+func (render *Renderer_impl)Clear_color(color_target *Surface, c Color_rgba32f) fundations.Result{}
+func (render *Renderer_impl)Clear_depth_stencil(depth_stencil_target *Surface, f uint32, d float64, s uint32) fundations.Result{}
+func (render *Renderer_impl)Flush() fundations.Result{}

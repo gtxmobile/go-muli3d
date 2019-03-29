@@ -1,0 +1,10 @@
+package pipeline
+const MAX_VS_INPUT_ATTRS		= 8;
+const MAX_VS_OUTPUT_ATTRS		= 7;
+const MAX_RENDER_TARGETS		= 8;
+const MAX_INPUT_SLOTS			= 32;
+const MAX_COMMAND_QUEUE			= 32;
+const MAX_RENDER_TARGET_WIDTH   = 8192;
+const MAX_RENDER_TARGET_HEIGHT  = 8192;
+const MAX_SAMPLE_COUNT			= 16;
+const SAMPLE_MASK				= 0xFFFF;

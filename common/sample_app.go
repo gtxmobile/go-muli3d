@@ -5,8 +5,6 @@ import (
 	"../render"
 	"fmt"
 	"github.com/lxn/win"
-	"sort"
-	"time"
 )
 type App_modes int
 
@@ -244,7 +242,7 @@ func (app *sample_app)draw_frame(){
 		(*app.data_.renderer).End(*app.data_.pipeline_stat_obj)
 		(*app.data_.renderer).End(*app.data_.internal_stat_obj)
 		(*app.data_.renderer).End(*app.data_.pipeline_prof_obj)
-	})
+	}
 	if	app.data_.quiting {
 		return
 	}
@@ -343,7 +341,7 @@ func (app *sample_app)quit(){
 func (app *sample_app) Save_frame(surf *render.Surface){
 	ss := fmt.Sprintf("%s_%d.png",app.data_.Benchmark_name,app.data_.frame_count - 1)
 	//pixel_format_color_bgra8 由宏生成，这里要处理一下
-	device.Save_surface((*app.data_.renderer).Get(), surf, ss, app.Pixel_format_color_bgra8)
+	device.Save_surface(app.data_.renderer, surf, ss, app.Pixel_format_color_bgra8)
 }
 
 //func (app *sample_app)min_max(in_out_min, in_out_max, v interface{}){

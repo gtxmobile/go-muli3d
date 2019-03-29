@@ -3,7 +3,7 @@ package smath
 import "math"
 
 type Vec_2 struct {
-
+	X,Y float64
 }
 
 func Interp(x1 float64,x2 float64,t float64) float64 {
@@ -35,11 +35,12 @@ func (x *Vector_t)Add_apply(y Vector_t){
 	x.W = 1.0
 }
 
-func (x *Vector_t)Sub_apply(y Vector_t){
+func (x *Vector_t)Sub_apply(y Vector_t) Vector_t{
 	x.X = x.X - y.X
 	x.Y = x.Y - y.Y
 	x.Z = x.Z - y.Z
 	x.W = 1.0
+	return *x
 }
 
 func (x *Vector_t)Sub_d(d float64){
@@ -73,20 +74,27 @@ func V_add(x Vector_t, y Vector_t) Vector_t{
 	return z
 }
 
-func (z *Vector_t)Divide(d float64){
+func (z *Vector_t)Divide(d float64) *Vector_t{
 	z.X /= d
 	z.Y /=	d
 	z.Z /=	d
 	z.W /=	d
+	return z
 }
-func (z *Vector_t)Multiply(d float64)*Vector_t{
+func (z *Vector_t) Scale(d float64)*Vector_t{
 	z.X *= 	d
 	z.Y *=	d
 	z.Z *=	d
 	z.W *=	d
 	return z
 }
-
+func (z *Vector_t) Multiply(d Vector_t)*Vector_t{
+	z.X *= 	d.X
+	z.Y *=	d.Y
+	z.Z *=	d.Z
+	z.W *=	d.W
+	return z
+}
 
 func (x Vector_t) Matrix_apply(m Matrix_t)(Vector_t){
 	X,Y,Z,W := x.X,x.Y,x.Z,x.W
